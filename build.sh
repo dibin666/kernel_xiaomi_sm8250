@@ -1,69 +1,83 @@
 #!/bin/bash
 
-#set -e
+# 更新 KernelSU (默认稳定版分支)
+read -p "是否更新 KernelSU？（默认为稳定版分支）(y/n): " choice
+if [ "$choice" = "y" ]; then
+  rm -rf KernelSU/
+  curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+fi
 
-KERNEL_DEFCONFIG=vendor/lmi_user_defconfig
+# 删除 KernelSU/kernel/ksu.c 关于KPROBES依赖的警告 （部分内核不删除会error）
+read -p "是否删除KernelSU/kernel/ksu.c 关于KPROBES依赖的警告 （部分内核不删除会error）？(y/n): " choice
+if [ "$choice" = "y" ]; then
+  sed -i '59,60d' KernelSU/kernel/ksu.c
+fi
+
+
+# AnyKernel3 路径
 ANYKERNEL3_DIR=$PWD/AnyKernel3/
-FINAL_KERNEL_ZIP=Perf_LMI_v284_A13_raystef66.zip
-
-# paths
-TC="/home/raystef66/kernel/prebuilts"
-
-PATH=${TC}/clang-r416183b1/bin:${TC}/aarch64/bin:${TC}/arm/bin:$PATH
-
-export LLVM=1
-export CC=clang
-export CROSS_COMPILE=aarch64-linux-gnu-
+# 编译完成后内核名字
+FINAL_KERNEL_ZIP=zen_plus-13_KernelSU_A13_dibin.zip
+# 内核工作目录
+export KERNEL_DIR=$(pwd)
+# 内核 defconfig 文件
+export KERNEL_DEFCONFIG=vendor/lmi_user_defconfig
+# 编译临时目录，避免污染根目录
+export OUT=out
+# clang 绝对路径
+export CLANG_PATH=/mnt/disk/tool/clang
+export PATH=${CLANG_PATH}/bin:$PATH
+# arch平台，这里时arm64
 export ARCH=arm64
-export USE_CCACHE=1
+#export SUBARCH=arm64
+export LLVM=1
 
-# Speed up build process
-MAKE="./makeparallel"
+# ./build.sh 4
 
-make O=out ARCH=arm64 vendor/lmi_user_defconfig
+#16为线程数，可以指定#
+TH_COUNT=16
+if [[ "" != "$1" ]]; then
+        TH_NUM=$1
+fi
 
-START=$(date +"%s")
+export DEF_ARGS="O=${OUT} \
+                                CC=clang \
+                                ARCH=${ARCH} \
+                                CROSS_COMPILE=${CLANG_PATH}/bin/aarch64-linux-gnu- \
+        			NM=llvm-nm \
+				AR=llvm-ar
+        			OBJCOPY=llvm-objcopy \
+        			OBJDUMP=llvm-objdump \
+        			STRIP=llvm-strip \
+				LD=ld.lld "
 
-make ARCH=arm64 \
-        O=out \
-        CC=clang \
-		AR=llvm-ar \
-        LD=ld.lld \
-        NM=llvm-nm \
-        OBJCOPY=llvm-objcopy \
-        OBJDUMP=llvm-objdump \
-        STRIP=llvm-strip \
-        -j$(nproc --all)
-               
+export BUILD_ARGS="-j${TH_COUNT} ${DEF_ARGS}"
 
-echo -e "$yellow**** Verify Image.gz-dtb & dtbo.img ****$nocol"
-ls $PWD/out/arch/arm64/boot/Image.gz-dtb
+echo -e "$yellow**** 开始编译内核 ****$nocol"
+make ${DEF_ARGS} ${KERNEL_DEFCONFIG}
+make ${BUILD_ARGS}
+
+echo -e "$yellow**** 验证 Image.gz-dtb 和 dtbo.img****$nocol"
 ls $PWD/out/arch/arm64/boot/dtbo.img
-
-echo -e "$yellow**** Verifying AnyKernel3 Directory ****$nocol"
+ls $PWD/out/arch/arm64/boot/Image.gz-dtb
+echo -e "$yellow**** 进入 AnyKernel3 目录 ****$nocol"
 ls $ANYKERNEL3_DIR
-echo -e "$yellow**** Removing leftovers ****$nocol"
+echo -e "$yellow**** 清理 AnyKernel3 目录 ****$nocol"
 rm -rf $ANYKERNEL3_DIR/Image.gz-dtb
 rm -rf $ANYKERNEL3_DIR/dtbo.img
 rm -rf $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP
-
-echo -e "$yellow**** Copying Image.gz-dtb & dtbo.img ****$nocol"
+echo -e "$yellow**** 复制 Image.gz-dtb 和 dtbo.img 到 AnyKernel3 目录 ****$nocol"
 cp $PWD/out/arch/arm64/boot/Image.gz-dtb $ANYKERNEL3_DIR/
 cp $PWD/out/arch/arm64/boot/dtbo.img $ANYKERNEL3_DIR/
-
-echo -e "$yellow**** Time to zip up! ****$nocol"
+echo -e "$yellow**** 正在打包内核为可刷入 Zip 文件 ****$nocol"
 cd $ANYKERNEL3_DIR/
 zip -r9 $FINAL_KERNEL_ZIP * -x README $FINAL_KERNEL_ZIP
-cp $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP /home/raystef66/kernel/$FINAL_KERNEL_ZIP
-
-echo -e "$yellow**** Done, here is your checksum ****$nocol"
+echo -e "$yellow**** 复制打包好的 Zip 文件到指定的目录 ****$nocol"
+cp $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP /mnt/disk/kernelout
+echo -e "$yellow**** 清理目录 ****$nocol"
 cd ..
 rm -rf $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP
 rm -rf $ANYKERNEL3_DIR/Image.gz-dtb
 rm -rf $ANYKERNEL3_DIR/dtbo.img
 rm -rf out/
-
-END=$(date +"%s")
-DIFF=$((END - START))
-echo -e '\033[01;32m' "Kernel compiled successfully in $((DIFF / 60)) minute(s) and $((DIFF % 60)) seconds" || exit
-sha1sum $KERNELDIR/$FINAL_KERNEL_ZIP
+echo -e "$yellow**** 构建完成 ****$nocol"
