@@ -90,7 +90,7 @@ cd $ANYKERNEL3_DIR/
 zip -r $FINAL_KERNEL_ZIP * -x README $FINAL_KERNEL_ZIP
 
 # 复制打包好的 Zip 文件到指定的目录
-cp $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP ../../out
+# cp $ANYKERNEL3_DIR/$FINAL_KERNEL_ZIP
 
 echo "编译耗时：$elapsed_time 秒"
 
